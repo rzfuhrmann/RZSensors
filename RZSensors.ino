@@ -17,8 +17,8 @@ const int PIN_VOLTAGE = 33;
 
 DynamicJsonDocument testDocument(1024);
 
-#define uS_TO_S_FACTOR 1000000  /* Conversion factor for micro seconds to seconds */
-#define TIME_TO_SLEEP  10       /* Time ESP32 will go to sleep (in seconds) */
+#define uS_TO_S_FACTOR 1000000
+#define TIME_TO_SLEEP  10
 
 RTC_DATA_ATTR int bootCount = 0;
 
@@ -38,13 +38,13 @@ Adafruit_CCS811 ccs;
 Adafruit_BME280 bme; // I2C
 BH1750 lightMeter (0x23);
 
-void setup()
-{
+void setup(){
     Serial.begin(115200);
-    pinMode(PIN_LED_RED, OUTPUT);      // set the LED pin mode
-    pinMode(PIN_LED_GREEN, OUTPUT);      // set the LED pin mode
+    pinMode(PIN_LED_RED, OUTPUT);
+    pinMode(PIN_LED_GREEN, OUTPUT);
     pinMode(PIN_VOLTAGE, INPUT);
 
+    // w/o this delay our ESP32s didn't came up randomly after deep sleep
     delay(400);
 
     digitalWrite(PIN_LED_RED, LOW);
@@ -55,13 +55,14 @@ void setup()
 
     Serial.println("[Sleep] Boot number: " + String(bootCount));
 
-    // We start by connecting to a WiFi network
+    
     // generate hostname
     for(int i=0; i<17; i=i+8) {
       chipId |= ((ESP.getEfuseMac() >> (40 - i)) & 0xff) << i;
     }
-  
     sprintf(hostname, "RZ-ESP32-%08X", chipId);
+
+    // connect to wifi
     Serial.print("[WiFi] Setting hostname to ");
     Serial.println(hostname); 
     WiFi.setHostname(hostname);
@@ -90,22 +91,20 @@ void setup()
       testDocument["sketch"]["cs"] = ESP.getSketchMD5(); 
   
       // Loop?
-      digitalWrite(PIN_LED_RED, HIGH);   // turn the LED on (HIGH is the voltage level)
-      delay(200);                       // wait for a second
-      digitalWrite(PIN_LED_RED, LOW);    // turn the LED off by making the voltage LOW
-      delay(200);                       // wait for a second
+      digitalWrite(PIN_LED_RED, HIGH);
+      delay(200);
+      digitalWrite(PIN_LED_RED, LOW);
+      delay(200);
       
-      //Check WiFi connection status
+      // wifi still connected?
       if(WiFi.status()== WL_CONNECTED){
         HTTPClient http;
         
-        // Your Domain name with URL path or IP address with path
         http.begin(serverName);
-  
-        // Specify content-type header
         http.addHeader("Content-Type", "application/json");
         
-        // Send HTTP POST request
+        // collecting data and add it to measurement data
+        // general debugging data of ESP32
         testDocument["t"] = millis();
         testDocument["hw"]["heap_free"] = ESP.getFreeHeap();
         testDocument["hw"]["heap_size"] = ESP.getHeapSize();
@@ -144,11 +143,13 @@ void setup()
         int CO2max = 0; int TVOCmax = 0; 
         if(ccs.begin()){
           if (weHaveBMEdata){
+            // if a BME (and its measurements) is available at this device, we can use it so set env data
             ccs.setEnvironmentalData(bme.readHumidity(), bme.readTemperature());
           }
           while(!ccs.available());
           int i = 0; 
           delay(500);
+          // only one measurement would not be accurate, therefore doing 10 and using the worst case (highest CO2 concentration)
           while (i < 10){
             delay(200);
             if(!ccs.readData()){
@@ -167,9 +168,9 @@ void setup()
         } else {
           Serial.println("[CSS811] Not available.");
         }
-  
+
+        // build JSON
         char buffer[1024];
-    
         serializeJson(testDocument, buffer);
         Serial.print("[HTTP] Payload: "); 
         Serial.println(buffer);
@@ -177,27 +178,28 @@ void setup()
         
         Serial.print("[HTTP] Response code: ");
         Serial.println(httpResponseCode);
-  
-        digitalWrite(PIN_LED_RED, HIGH);   // turn the LED on (HIGH is the voltage level)
-        delay(150);                       // wait for a second
-        digitalWrite(PIN_LED_RED, LOW);    // turn the LED off by making the voltage LOW
-        delay(200);                       // wait for a second
-        digitalWrite(PIN_LED_RED, HIGH);   // turn the LED on (HIGH is the voltage level)
-        delay(150);                       // wait for a second
-        digitalWrite(PIN_LED_RED, LOW);    // turn the LED off by making the voltage LOW
-        delay(200);   
-  
+
+        // blink 2x on success
+        digitalWrite(PIN_LED_RED, HIGH);
+        delay(150);
+        digitalWrite(PIN_LED_RED, LOW);
+        delay(200);
+        digitalWrite(PIN_LED_RED, HIGH);
+        delay(150);
+        digitalWrite(PIN_LED_RED, LOW);
+        delay(200);
+
+        // ... and 3x on error
         if (httpResponseCode != 200){
-          digitalWrite(PIN_LED_RED, HIGH);   // turn the LED on (HIGH is the voltage level)
-          delay(150);                       // wait for a second
-          digitalWrite(PIN_LED_RED, LOW);    // turn the LED off by making the voltage LOW
-          delay(200);   
+          digitalWrite(PIN_LED_RED, HIGH);
+          delay(150);
+          digitalWrite(PIN_LED_RED, LOW);
+          delay(200);
         }
           
         // Free resources
         http.end();
-      }
-      else {
+      } else {
         Serial.println("WiFi Disconnected");
       }
     }
