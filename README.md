@@ -6,6 +6,8 @@ Currently measured:
 * CO2/eCO2 and TVOC zsubg CCS811
 * Some debugging values of the ESP32: WiFi RSSI, Heap Size, Free Heap, Voltage of power supply
 
+If a sensor is available, its measurements are processed, if not, these measurements are just ignored. So adding a new sensor is just "plugging it in". 
+
 ## Used Hardware
 The Sketch is not limited to that hardware, but this is the hardware we're currently using. We'll also try to not vary that much with the sensors/breakout boards to have a reliable implementation (means: We're also using that links to re-order new sensors ;)).
 
