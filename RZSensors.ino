@@ -1,3 +1,22 @@
+/**
+ * RZSensors
+ * ESP32 sketch to measure and HTTP POST various measurements to a webservice with an ESP32 board
+ * Please see the Github repository for details, roadmap - or to suggest improvements: https://github.com/rzfuhrmann/RZSensors
+ * 
+ * @author    Sebastian Fuhrmann <sebastian.fuhrmann@rz-fuhrmann.de>
+ * @copyright (C) 2019-2021 Rechenzentrum Fuhrmann Inh. Sebastian Fuhrmann
+ * @version   2021-02-25
+ * @license   MIT
+ * 
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+ 
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include "Esp.h"
@@ -13,7 +32,6 @@ char hostname[20];
 const int PIN_LED_RED = 5;
 const int PIN_LED_GREEN = 18;
 const int PIN_VOLTAGE = 33;
-
 
 DynamicJsonDocument testDocument(1024);
 
@@ -35,7 +53,7 @@ Adafruit_CCS811 ccs;
 
 #define SEALEVELPRESSURE_HPA (1013.25)
 
-Adafruit_BME280 bme; // I2C
+Adafruit_BME280 bme;
 BH1750 lightMeter (0x23);
 
 void setup(){
