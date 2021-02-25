@@ -13,7 +13,7 @@ The Sketch is not limited to that hardware, but this is the hardware we're curre
 
 | Name | Description | Links* |
 | ---- | ----------- | ---- |
-| ESP32 NodeMCU | ESP32 Dev Board from AZDelivery | [Amazon (pack of 3)](https://amzn.to/3dHtIr6)
+| ESP32 NodeMCU | ESP32 Dev Board from AZDelivery <br>Note: The productive ESP32 doesn't need to be a dev board, since we don't need a lot of its power-consuming hardware. | [Amazon (pack of 3)](https://amzn.to/3dHtIr6)
 | BH1750 | Light meter | [Amazon (pack of 3)](https://amzn.to/37MLqWh) |
 | CCS811 | CO2/TVOC sensor for CO2 values >= 400 ppm | [Amazon](https://amzn.to/3pRPnzj) |
 | BME280 | Temperature, Pressure and Humidity sensor | [Amazon (pack of 3)](https://amzn.to/3uyqmMS) |
