@@ -5,7 +5,7 @@
  * 
  * @author    Sebastian Fuhrmann <sebastian.fuhrmann@rz-fuhrmann.de>
  * @copyright (C) 2019-2021 Rechenzentrum Fuhrmann Inh. Sebastian Fuhrmann
- * @version   2021-02-25
+ * @version   2021-03-16
  * @license   MIT
  * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
@@ -33,7 +33,7 @@ const int PIN_LED_RED = 5;
 const int PIN_LED_GREEN = 18;
 const int PIN_VOLTAGE = 33;
 
-DynamicJsonDocument testDocument(1024);
+DynamicJsonDocument postData(1024);
 
 #define uS_TO_S_FACTOR 1000000
 #define TIME_TO_SLEEP  10
@@ -55,6 +55,16 @@ Adafruit_CCS811 ccs;
 
 Adafruit_BME280 bme;
 BH1750 lightMeter (0x23);
+
+// New Temp Sensors
+#include <OneWire.h>
+#include <DallasTemperature.h>
+#define ONE_WIRE_BUS 4
+OneWire oneWire(ONE_WIRE_BUS);
+DallasTemperature dallSensors(&oneWire);
+int numberOfDevices;
+DeviceAddress tempDeviceAddress; 
+// /new Temps
 
 void setup(){
     Serial.begin(115200);
@@ -104,9 +114,9 @@ void setup(){
       Serial.println(WiFi.localIP());
   
       // JSON try
-      testDocument["device"] = hostname;
-      testDocument["battery"]["raw"] = analogRead(PIN_VOLTAGE); 
-      testDocument["sketch"]["cs"] = ESP.getSketchMD5(); 
+      postData["device"] = hostname;
+      postData["battery"]["raw"] = analogRead(PIN_VOLTAGE); 
+      postData["sketch"]["cs"] = ESP.getSketchMD5(); 
   
       // Loop?
       digitalWrite(PIN_LED_RED, HIGH);
@@ -123,14 +133,47 @@ void setup(){
         
         // collecting data and add it to measurement data
         // general debugging data of ESP32
-        testDocument["t"] = millis();
-        testDocument["hw"]["heap_free"] = ESP.getFreeHeap();
-        testDocument["hw"]["heap_size"] = ESP.getHeapSize();
-        testDocument["wifi"]["rssi"] = WiFi.RSSI(); 
-        testDocument["wifi"]["bssid"] = WiFi.BSSIDstr(); 
-        testDocument["wifi"]["ip"] = WiFi.localIP().toString();
-        testDocument["wifi"]["gateway"] = WiFi.gatewayIP().toString(); 
-        testDocument["sleep"]["bc"] = bootCount;
+        postData["t"] = millis();
+        postData["hw"]["heap_free"] = ESP.getFreeHeap();
+        postData["hw"]["heap_size"] = ESP.getHeapSize();
+        postData["wifi"]["rssi"] = WiFi.RSSI(); 
+        postData["wifi"]["bssid"] = WiFi.BSSIDstr(); 
+        postData["wifi"]["ip"] = WiFi.localIP().toString();
+        postData["wifi"]["gateway"] = WiFi.gatewayIP().toString(); 
+        postData["sleep"]["bc"] = bootCount;
+
+        // DALLAS TEMPERATURE
+        dallSensors.begin();
+        numberOfDevices = dallSensors.getDeviceCount();
+
+        // locate devices on the bus
+        Serial.print("Locating devices...");
+        Serial.print("Found ");
+        Serial.print(numberOfDevices, DEC);
+        Serial.println(" devices.");
+      
+        // Loop through each device, print out address
+        dallSensors.requestTemperatures();
+        
+        for(int i=0;i<numberOfDevices; i++){
+          // Search the wire for address
+          if(dallSensors.getAddress(tempDeviceAddress, i)){
+            Serial.print("Found device ");
+            Serial.print(i, DEC);
+            Serial.print(" with address: ");
+            printAddress(tempDeviceAddress);
+            Serial.println();
+            float tempC = dallSensors.getTempC(tempDeviceAddress);
+            postData["sensors"]["temperatureMulti"][i]["id"] = addr2str(tempDeviceAddress);
+            postData["sensors"]["temperatureMulti"][i]["temp"] = tempC;
+            Serial.print("Temp C: ");
+            Serial.println(tempC);
+          } else {
+            Serial.print("Found ghost device at ");
+            Serial.print(i, DEC);
+            Serial.print(" but could not detect address. Check power and cabling");
+          }
+        }
   
         // BME280 - TEMP, PRESSURE, HUMIDITY
         bool weHaveBMEdata = false; 
@@ -138,9 +181,9 @@ void setup(){
         unsigned status = bme.begin(0x76);
         if (status){
           Serial.println("[BME280] Got data!");
-          testDocument["sensors"]["temperature"] = bme.readTemperature();
-          testDocument["sensors"]["pressure"] = bme.readPressure() / 100.0F;
-          testDocument["sensors"]["humidity"] = bme.readHumidity();
+          postData["sensors"]["temperature"] = bme.readTemperature();
+          postData["sensors"]["pressure"] = bme.readPressure() / 100.0F;
+          postData["sensors"]["humidity"] = bme.readHumidity();
           weHaveBMEdata = true; 
         } else {
           Serial.println("[BME280] Not available.");
@@ -149,7 +192,7 @@ void setup(){
         // BH1750 - LIGHT
         Serial.println("[BH1750] Init light sensor...");
         if (lightMeter.begin()){
-          testDocument["sensors"]["light"] = lightMeter.readLightLevel();
+          postData["sensors"]["light"] = lightMeter.readLightLevel();
           Serial.println("[BH1750] Available and got data.");
         } else {
           Serial.println("[BH1750] Not available.");
@@ -180,8 +223,8 @@ void setup(){
             i++;
           }
           if (weHaveCO2data){
-            testDocument["sensors"]["co2"] = CO2max;
-            testDocument["sensors"]["tvoc"] = TVOCmax;
+            postData["sensors"]["co2"] = CO2max;
+            postData["sensors"]["tvoc"] = TVOCmax;
           }
         } else {
           Serial.println("[CSS811] Not available.");
@@ -189,7 +232,7 @@ void setup(){
 
         // build JSON
         char buffer[1024];
-        serializeJson(testDocument, buffer);
+        serializeJson(postData, buffer);
         Serial.print("[HTTP] Payload: "); 
         Serial.println(buffer);
         int httpResponseCode = http.POST(buffer);
@@ -232,6 +275,28 @@ void setup(){
     delay(400);
     Serial.flush(); 
     esp_deep_sleep_start();
+}
+
+char *addr2str(DeviceAddress deviceAddress){
+    static char res[18];
+    static char *hex = "0123456789ABCDEF";
+    uint8_t i, j;
+
+    for (i=0, j=0; i<8; i++){
+         res[j++] = hex[deviceAddress[i] / 16];
+         res[j++] = hex[deviceAddress[i] & 15];
+    }
+    res[j] = '\0';
+
+    return res;
+}
+
+
+void printAddress(DeviceAddress deviceAddress) {
+  for (uint8_t i = 0; i < 8; i++){
+    if (deviceAddress[i] < 16) Serial.print("0");
+      Serial.print(deviceAddress[i], HEX);
+  }
 }
 
 void loop(){}
