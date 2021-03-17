@@ -5,7 +5,7 @@
  * 
  * @author    Sebastian Fuhrmann <sebastian.fuhrmann@rz-fuhrmann.de>
  * @copyright (C) 2019-2021 Rechenzentrum Fuhrmann Inh. Sebastian Fuhrmann
- * @version   2021-03-16
+ * @version   2021-03-17a
  * @license   MIT
  * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
@@ -16,15 +16,19 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
- 
+
+#include <string.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include "Esp.h"
 #include <ArduinoJson.h>
+#include <Update.h>
 
 #include "RZ_CONSTANTS.h"
 
 const char* serverName = "http://192.168.1.66:80/tasks/monitoring/influx/esp.php";
+const char* FOTA_URL = "http://192.168.1.66:80/rz/RZSensorsUpdater/update.php";
+const char* VERSION = "2021-03-17c";
 
 uint32_t chipId = 0;
 char hostname[20];
@@ -62,11 +66,65 @@ BH1750 lightMeter (0x23);
 #define ONE_WIRE_BUS 4
 OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature dallSensors(&oneWire);
-int numberOfDevices;
 DeviceAddress tempDeviceAddress; 
 // /new Temps
 
+void checkFOTA(){
+  Serial.println("[FOTA] Searching for update...");
+
+  // update server will trigger an update if version is too old or not set
+  String url = String(FOTA_URL) + "?hostname=" + String(hostname) + "&cs=" + String(ESP.getSketchMD5()) + "&v=" + String(VERSION);
+  Serial.println(url);
+
+  HTTPClient http;
+  http.begin(url);
+  if (http.GET() == 200){
+    Serial.println("[FOTA] Update available.");
+
+    int len = http.getSize();
+
+    Serial.print("[FOTA] Starting update, size: ");
+    Serial.print(len); 
+    
+    Update.begin(len);
+    //Update.write(upload.buf, upload.currentSize);
+    //Update.writeStream();
+    WiFiClient * stream = http.getStreamPtr();
+
+    // read all data from server
+    uint8_t buff[128] = { 0 };
+    while(http.connected() && (len > 0 || len == -1)) {
+        // get available data size
+        size_t size = stream->available();
+
+        if(size) {
+            // read up to 128 byte
+            int c = stream->readBytes(buff, ((size > sizeof(buff)) ? sizeof(buff) : size));
+
+            // write it to Serial
+            //USE_SERIAL.write(buff, c);
+            Update.write(buff, c);
+
+            if(len > 0) {
+                len -= c;
+            }
+        }
+        delay(1);
+    }
+    Serial.println("[FOTA] Update end.");
+    Update.end(true);
+    Serial.println("[FOTA] Restarting...");
+    ESP.restart();
+  } else {
+    Serial.println("[FOTA] No update available (or not found).");
+    Serial.println(http.getString());
+  }
+  http.end();
+}
+
 void setup(){
+    int countTempSensors = 0; 
+    
     Serial.begin(115200);
     pinMode(PIN_LED_RED, OUTPUT);
     pinMode(PIN_LED_GREEN, OUTPUT);
@@ -112,11 +170,12 @@ void setup(){
     } else {
       Serial.print("[WiFi] Connected. IP address: ");
       Serial.println(WiFi.localIP());
-  
+
       // JSON try
       postData["device"] = hostname;
       postData["battery"]["raw"] = analogRead(PIN_VOLTAGE); 
       postData["sketch"]["cs"] = ESP.getSketchMD5(); 
+      postData["sketch"]["v"] = VERSION; 
   
       // Loop?
       digitalWrite(PIN_LED_RED, HIGH);
@@ -144,35 +203,24 @@ void setup(){
 
         // DALLAS TEMPERATURE
         dallSensors.begin();
-        numberOfDevices = dallSensors.getDeviceCount();
+        int numberOfDevices = dallSensors.getDeviceCount();
 
-        // locate devices on the bus
-        Serial.print("Locating devices...");
-        Serial.print("Found ");
-        Serial.print(numberOfDevices, DEC);
-        Serial.println(" devices.");
-      
-        // Loop through each device, print out address
-        dallSensors.requestTemperatures();
-        
-        for(int i=0;i<numberOfDevices; i++){
-          // Search the wire for address
-          if(dallSensors.getAddress(tempDeviceAddress, i)){
-            Serial.print("Found device ");
-            Serial.print(i, DEC);
-            Serial.print(" with address: ");
-            printAddress(tempDeviceAddress);
-            Serial.println();
-            float tempC = dallSensors.getTempC(tempDeviceAddress);
-            postData["sensors"]["temperatureMulti"][i]["id"] = addr2str(tempDeviceAddress);
-            postData["sensors"]["temperatureMulti"][i]["temp"] = tempC;
-            Serial.print("Temp C: ");
-            Serial.println(tempC);
-          } else {
-            Serial.print("Found ghost device at ");
-            Serial.print(i, DEC);
-            Serial.print(" but could not detect address. Check power and cabling");
+        if (numberOfDevices){
+          Serial.print("[DS18B20] Found ");
+          Serial.print(numberOfDevices);
+          Serial.println(" DS18B20 sensors, requesting temperatures...");
+          
+          dallSensors.requestTemperatures();
+          for(int i=0;i<numberOfDevices; i++){
+            if(dallSensors.getAddress(tempDeviceAddress, i)){
+              postData["sensors"]["temperatureMulti"][countTempSensors]["id"] = addr2str(tempDeviceAddress);
+              postData["sensors"]["temperatureMulti"][countTempSensors++]["temp"] = dallSensors.getTempC(tempDeviceAddress);
+            } else {
+              // Ghost device, maybe wiring wrong?
+            }
           }
+        } else {
+          Serial.println("[DS18B20] No DS18B20 sensors found.");
         }
   
         // BME280 - TEMP, PRESSURE, HUMIDITY
@@ -185,6 +233,10 @@ void setup(){
           postData["sensors"]["pressure"] = bme.readPressure() / 100.0F;
           postData["sensors"]["humidity"] = bme.readHumidity();
           weHaveBMEdata = true; 
+
+          // TEMP: new multiTemp format
+          postData["sensors"]["temperatureMulti"][countTempSensors]["id"] = "bme280";
+          postData["sensors"]["temperatureMulti"][countTempSensors++]["temp"] = postData["sensors"]["temperature"];
         } else {
           Serial.println("[BME280] Not available.");
         }
@@ -260,6 +312,9 @@ void setup(){
           
         // Free resources
         http.end();
+
+        // check for update in 1/3 cases
+        if (random(10) % 3 == 0) checkFOTA(); 
       } else {
         Serial.println("WiFi Disconnected");
       }
@@ -289,14 +344,6 @@ char *addr2str(DeviceAddress deviceAddress){
     res[j] = '\0';
 
     return res;
-}
-
-
-void printAddress(DeviceAddress deviceAddress) {
-  for (uint8_t i = 0; i < 8; i++){
-    if (deviceAddress[i] < 16) Serial.print("0");
-      Serial.print(deviceAddress[i], HEX);
-  }
 }
 
 void loop(){}
