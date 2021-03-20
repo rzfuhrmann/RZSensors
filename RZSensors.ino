@@ -5,7 +5,7 @@
  * 
  * @author    Sebastian Fuhrmann <sebastian.fuhrmann@rz-fuhrmann.de>
  * @copyright (C) 2019-2021 Rechenzentrum Fuhrmann Inh. Sebastian Fuhrmann
- * @version   2021-03-17a
+ * @version   2021-03-20
  * @license   MIT
  * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
@@ -28,7 +28,7 @@
 
 const char* serverName = "http://192.168.1.66:80/tasks/monitoring/influx/esp.php";
 const char* FOTA_URL = "http://192.168.1.66:80/rz/RZSensorsUpdater/update.php";
-const char* VERSION = "2021-03-17c";
+const char* VERSION = "2021-03-20";
 
 uint32_t chipId = 0;
 char hostname[20];
@@ -313,8 +313,8 @@ void setup(){
         // Free resources
         http.end();
 
-        // check for update in 1/3 cases
-        if (random(10) % 3 == 0) checkFOTA(); 
+        // check for update in 1/5 cases
+        if (random(10) % 4 == 0) checkFOTA(); 
       } else {
         Serial.println("WiFi Disconnected");
       }
