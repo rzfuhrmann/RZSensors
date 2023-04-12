@@ -4,8 +4,8 @@
  * Please see the Github repository for details, roadmap - or to suggest improvements: https://github.com/rzfuhrmann/RZSensors
  * 
  * @author    Sebastian Fuhrmann <sebastian.fuhrmann@rz-fuhrmann.de>
- * @copyright (C) 2019-2021 Rechenzentrum Fuhrmann Inh. Sebastian Fuhrmann
- * @version   2021-03-20
+ * @copyright (C) 2019-2023 Rechenzentrum Fuhrmann Inh. Sebastian Fuhrmann
+ * @version   2023-04-12a
  * @license   MIT
  * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
@@ -28,7 +28,7 @@
 
 const char* serverName = "http://192.168.1.66:80/tasks/monitoring/influx/esp.php";
 const char* FOTA_URL = "http://192.168.1.66:80/rz/RZSensorsUpdater/update.php";
-const char* VERSION = "2021-03-20";
+const char* VERSION = "2023-04-12a";
 
 uint32_t chipId = 0;
 char hostname[20];
@@ -37,23 +37,26 @@ const int PIN_LED_RED = 5;
 const int PIN_LED_GREEN = 18;
 const int PIN_VOLTAGE = 33;
 
+#define BME_SCK 13
+#define BME_MISO 12
+#define BME_MOSI 11
+#define BME_CS 10
+
 DynamicJsonDocument postData(1024);
 
 #define uS_TO_S_FACTOR 1000000
 #define TIME_TO_SLEEP  10
+#define ESP32
 
 RTC_DATA_ATTR int bootCount = 0;
+RTC_DATA_ATTR int RTC_WIFI_TRIES_BEFORE = 0; 
+RTC_DATA_ATTR int RTC_HTTP_TRACK_BEFORE = 0; 
 
 #include "Adafruit_CCS811.h"
 Adafruit_CCS811 ccs;
 
 #include <Adafruit_BME280.h>
 #include <BH1750.h>
-
-#define BME_SCK 13
-#define BME_MISO 12
-#define BME_MOSI 11
-#define BME_CS 10
 
 #define SEALEVELPRESSURE_HPA (1013.25)
 
@@ -68,6 +71,11 @@ OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature dallSensors(&oneWire);
 DeviceAddress tempDeviceAddress; 
 // /new Temps
+
+// Feinstaub
+#include <SdsDustSensor.h>
+HardwareSerial sdsSerial(2);
+SdsDustSensor sds(sdsSerial);
 
 void checkFOTA(){
   Serial.println("[FOTA] Searching for update...");
@@ -140,6 +148,7 @@ void setup(){
     Serial.println();
 
     Serial.println("[Sleep] Boot number: " + String(bootCount));
+    Serial.println("[General] FW Version: " + String(VERSION));
 
     
     // generate hostname
@@ -158,7 +167,7 @@ void setup(){
     WiFi.setHostname(hostname);
 
     int wifi_tries = 0; 
-    while (WiFi.status() != WL_CONNECTED && wifi_tries <= 10) {
+    while (WiFi.status() != WL_CONNECTED && wifi_tries <= 50) {
         delay(500);
         Serial.print(".");
         wifi_tries++;
@@ -167,6 +176,7 @@ void setup(){
 
     if (WiFi.status() != WL_CONNECTED){
       Serial.println("[WiFi] No chance to connect after a couple of retries. Skipping measurement.");
+      RTC_WIFI_TRIES_BEFORE++;
     } else {
       Serial.print("[WiFi] Connected. IP address: ");
       Serial.println(WiFi.localIP());
@@ -199,7 +209,11 @@ void setup(){
         postData["wifi"]["bssid"] = WiFi.BSSIDstr(); 
         postData["wifi"]["ip"] = WiFi.localIP().toString();
         postData["wifi"]["gateway"] = WiFi.gatewayIP().toString(); 
+        postData["wifi"]["tries"] = wifi_tries; 
         postData["sleep"]["bc"] = bootCount;
+        
+        postData["sleep"]["wifi_failed_before"] = RTC_WIFI_TRIES_BEFORE; 
+        postData["sleep"]["http_failed_before"] = RTC_HTTP_TRACK_BEFORE; 
 
         // DALLAS TEMPERATURE
         dallSensors.begin();
@@ -282,6 +296,21 @@ void setup(){
           Serial.println("[CSS811] Not available.");
         }
 
+        // Feinstaub
+        Serial.println("[SDS011] Trying to start dust sensor...");
+        sds.begin(); 
+        Serial.println(sds.queryFirmwareVersion().toString()); // prints firmware version
+        PmResult pm = sds.readPm();
+        if (pm.isOk()) {
+          postData["sensors"]["pm25"] = pm.pm25;
+          postData["sensors"]["pm10"] = pm.pm10;
+          Serial.println("[SDS011] Got data.");
+        } else {
+          Serial.print("[SDS011] Could not read values from sensor, reason: ");
+          Serial.println(pm.statusToString());
+          postData["sensors"]["sds011_err"] = pm.statusToString();
+        }
+
         // build JSON
         char buffer[1024];
         serializeJson(postData, buffer);
@@ -308,12 +337,18 @@ void setup(){
           delay(150);
           digitalWrite(PIN_LED_RED, LOW);
           delay(200);
+          RTC_HTTP_TRACK_BEFORE++; 
+          
+        } else {
+          // data could be sent, reset counters
+          RTC_WIFI_TRIES_BEFORE = 0; 
+          RTC_HTTP_TRACK_BEFORE = 0; 
         }
           
         // Free resources
         http.end();
 
-        // check for update in 1/5 cases
+        // check for update in 1/4 cases
         if (random(10) % 4 == 0) checkFOTA(); 
       } else {
         Serial.println("WiFi Disconnected");

@@ -7,7 +7,7 @@
     if (file_exists($source_file) && filemtime($source_file) < time()-30){
         $sourcecode = file_get_contents('/var/www/rz/RZSensors/RZSensors.ino');
         if (preg_match('~const char\* VERSION = "([^"]+)";~', $sourcecode, $matches)){
-            rename($source_file, __DIR__.'/firmwares/RZSensors/'.$matches[1].'.bin');
+            rename($source_file, __DIR__.'/firmwares/RZSensors+Feinstaub/'.$matches[1].'.bin');
         }
     }
     
